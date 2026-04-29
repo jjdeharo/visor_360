@@ -322,14 +322,15 @@ fileInput.addEventListener('change', e => {
 });
 
 function loadImage(file) {
-  const url = URL.createObjectURL(file);
+  const url = typeof file === 'string' ? file : URL.createObjectURL(file);
+  const isBlob = typeof file !== 'string';
   const loader = new THREE.TextureLoader();
   loader.load(url, texture => {
     texture.colorSpace = THREE.SRGBColorSpace;
     material.map = texture;
     material.color.set(0xffffff);
     material.needsUpdate = true;
-    URL.revokeObjectURL(url);
+    if (isBlob) URL.revokeObjectURL(url);
 
     isLoaded = true;
     hint.classList.add('hidden');
@@ -337,15 +338,16 @@ function loadImage(file) {
     autorotate = true;
     autorotateBtn.classList.add('active');
 
-    // Reset view
     lon = 0; lat = 0;
     targetLon = 0; targetLat = 0;
     fov = 75; targetFov = 75;
 
-    // Fade controls hint
     setTimeout(() => controlsHint.classList.add('fade'), 3000);
   });
 }
+
+// Load default example on start
+loadImage('ejemplo.png');
 
 // Render loop
 function animate() {
