@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visor 360°</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #111;
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #toolbar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+    }
+
+    #toolbar h1 {
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    #open-btn {
+      margin-left: auto;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 7px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: background 0.2s;
+    }
+    #open-btn:hover { background: #1d4ed8; }
+
+    #file-input { display: none; }
+
+    #canvas-container {
+      flex: 1;
+      position: relative;
+    }
+
+    canvas { display: block; }
+
+    #hint {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+    #hint.hidden { opacity: 0; }
+
+    #hint .icon { font-size: 4rem; margin-bottom: 12px; }
+    #hint p { color: #aaa; font-size: 0.95rem; }
+    #hint .shortcut {
+      margin-top: 10px;
+      font-size: 0.82rem;
+      color: #666;
+    }
+
+    #controls-hint {
+      position: absolute;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.55);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      color: #bbb;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 1s;
+      white-space: nowrap;
+    }
+    #controls-hint.fade { opacity: 0; }
+
+    #zoom-controls {
+      position: absolute;
+      bottom: 50px;
+      right: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #zoom-controls button {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      font-size: 1.2rem;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+      transition: background 0.2s;
+    }
+    #zoom-controls button:hover { background: rgba(255,255,255,0.3); }
+
+    #autorotate-btn {
+      position: absolute;
+      bottom: 50px;
+      left: 16px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+      transition: background 0.2s;
+      display: none;
+    }
+    #autorotate-btn.active { background: rgba(37,99,235,0.7); }
+    #autorotate-btn:hover { background: rgba(255,255,255,0.3); }
+    #autorotate-btn.active:hover { background: rgba(37,99,235,0.9); }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>Visor 360°</h1>
+  <button id="open-btn" onclick="document.getElementById('file-input').click()">
+    Abrir imagen
+  </button>
+  <input type="file" id="file-input" accept="image/*">
+</div>
+
+<div id="canvas-container">
+  <div id="hint">
+    <div class="icon">🌐</div>
+    <p>Abre una imagen equirectangular (360°)</p>
+    <p class="shortcut">También puedes arrastrar y soltar la imagen aquí</p>
+  </div>
+
+  <div id="controls-hint">
+    🖱️ Arrastra para girar &nbsp;·&nbsp; Rueda para zoom &nbsp;·&nbsp; Toca y arrastra en móvil
+  </div>
+
+  <div id="zoom-controls">
+    <button id="zoom-in" title="Acercar">+</button>
+    <button id="zoom-out" title="Alejar">−</button>
+  </div>
+
+  <button id="autorotate-btn" title="Autorrotación">↺</button>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+const container = document.getElementById('canvas-container');
+const hint = document.getElementById('hint');
+const controlsHint = document.getElementById('controls-hint');
+const autorotateBtn = document.getElementById('autorotate-btn');
+const fileInput = document.getElementById('file-input');
+
+// Scene setup
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+camera.position.set(0, 0, 0.001);
+
+// Sphere geometry (inside-out)
+const geometry = new THREE.SphereGeometry(500, 60, 40);
+geometry.scale(-1, 1, 1);
+const material = new THREE.MeshBasicMaterial({ color: 0x222222 });
+const sphere = new THREE.Mesh(geometry, material);
+scene.add(sphere);
+
+// State
+let isLoaded = false;
+let autorotate = false;
+let autorotateSpeed = 0.0015;
+
+// Interaction state
+let isDragging = false;
+let prevMouse = { x: 0, y: 0 };
+let lon = 0, lat = 0;
+let targetLon = 0, targetLat = 0;
+let fov = 75;
+let targetFov = 75;
+
+// Touch
+let prevTouchDist = 0;
+let prevTouchMid = { x: 0, y: 0 };
+
+function resize() {
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Mouse controls
+renderer.domElement.addEventListener('mousedown', e => {
+  isDragging = true;
+  prevMouse = { x: e.clientX, y: e.clientY };
+  autorotate = false;
+  autorotateBtn.classList.remove('active');
+});
+
+window.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  const dx = e.clientX - prevMouse.x;
+  const dy = e.clientY - prevMouse.y;
+  targetLon -= dx * 0.15;
+  targetLat += dy * 0.15;
+  prevMouse = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mouseup', () => { isDragging = false; });
+
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  targetFov = Math.min(120, Math.max(30, targetFov + e.deltaY * 0.05));
+}, { passive: false });
+
+// Touch controls
+renderer.domElement.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    isDragging = true;
+    prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    autorotate = false;
+    autorotateBtn.classList.remove('active');
+  } else if (e.touches.length === 2) {
+    isDragging = false;
+    prevTouchDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    prevTouchMid = {
+      x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+      y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+    };
+  }
+}, { passive: false });
+
+renderer.domElement.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1 && isDragging) {
+    const dx = e.touches[0].clientX - prevMouse.x;
+    const dy = e.touches[0].clientY - prevMouse.y;
+    targetLon -= dx * 0.2;
+    targetLat += dy * 0.2;
+    prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  } else if (e.touches.length === 2) {
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    const delta = prevTouchDist - dist;
+    targetFov = Math.min(120, Math.max(30, targetFov + delta * 0.1));
+    prevTouchDist = dist;
+  }
+}, { passive: false });
+
+renderer.domElement.addEventListener('touchend', () => { isDragging = false; });
+
+// Zoom buttons
+document.getElementById('zoom-in').addEventListener('click', () => {
+  targetFov = Math.max(30, targetFov - 10);
+});
+document.getElementById('zoom-out').addEventListener('click', () => {
+  targetFov = Math.min(120, targetFov + 10);
+});
+
+// Autorotate button
+autorotateBtn.addEventListener('click', () => {
+  autorotate = !autorotate;
+  autorotateBtn.classList.toggle('active', autorotate);
+});
+
+// Drag & drop
+container.addEventListener('dragover', e => e.preventDefault());
+container.addEventListener('drop', e => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) loadImage(file);
+});
+
+// File input
+fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) loadImage(file);
+  fileInput.value = '';
+});
+
+function loadImage(file) {
+  const url = URL.createObjectURL(file);
+  const loader = new THREE.TextureLoader();
+  loader.load(url, texture => {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    material.map = texture;
+    material.color.set(0xffffff);
+    material.needsUpdate = true;
+    URL.revokeObjectURL(url);
+
+    isLoaded = true;
+    hint.classList.add('hidden');
+    autorotateBtn.style.display = 'block';
+    autorotate = true;
+    autorotateBtn.classList.add('active');
+
+    // Reset view
+    lon = 0; lat = 0;
+    targetLon = 0; targetLat = 0;
+    fov = 75; targetFov = 75;
+
+    // Fade controls hint
+    setTimeout(() => controlsHint.classList.add('fade'), 3000);
+  });
+}
+
+// Render loop
+function animate() {
+  requestAnimationFrame(animate);
+
+  if (autorotate && isLoaded) {
+    targetLon += autorotateSpeed * 60;
+  }
+
+  // Smooth interpolation
+  lon += (targetLon - lon) * 0.08;
+  lat += (targetLat - lat) * 0.08;
+  lat = Math.max(-85, Math.min(85, lat));
+  fov += (targetFov - fov) * 0.1;
+  camera.fov = fov;
+  camera.updateProjectionMatrix();
+
+  const phi = THREE.MathUtils.degToRad(90 - lat);
+  const theta = THREE.MathUtils.degToRad(lon);
+
+  camera.lookAt(
+    500 * Math.sin(phi) * Math.cos(theta),
+    500 * Math.cos(phi),
+    500 * Math.sin(phi) * Math.sin(theta)
+  );
+
+  renderer.render(scene, camera);
+}
+
+animate();
+</script>
+</body>
+</html>
